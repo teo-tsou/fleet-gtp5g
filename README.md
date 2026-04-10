@@ -5,8 +5,8 @@ Required by free5GC UPF for GTP-U tunnel support.
 
 ## What it does
 - Runs as a DaemonSet on every node (including new nodes that join later)
-- Installs kernel headers, build tools, and DKMS on the host
-- Builds and installs gtp5g v0.9.5 via DKMS (persists across kernel upgrades)
+- Installs kernel headers, build tools on the host
+- Builds and installs gtp5g v0.9.5 
 - Loads the module immediately via `modprobe` (no reboot needed)
 - Enables `net.ipv4.ip_forward` persistently
 

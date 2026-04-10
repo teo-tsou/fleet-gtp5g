@@ -45,29 +45,24 @@ spec:
                 gcc \
                 make \
                 git \
-                dkms \
                 linux-headers-${KERNEL}
 
-              GTP5G_VERSION="v0.9.5"
-              GTP5G_DIR="/usr/src/gtp5g-0.9.5"
+              GTP5G_VERSION="v0.9.16"
+              GTP5G_DIR="/tmp/gtp5g"
 
               echo "Cloning gtp5g ${GTP5G_VERSION}..."
-              if [ ! -d "/host${GTP5G_DIR}" ]; then
-                chroot /host git clone \
-                  --branch ${GTP5G_VERSION} \
-                  --depth 1 \
-                  https://github.com/free5gc/gtp5g.git \
-                  ${GTP5G_DIR}
-              fi
-
-              echo "Adding to DKMS..."
-              chroot /host dkms add -m gtp5g -v 0.9.5 || true
+              rm -rf /host${GTP5G_DIR}
+              chroot /host git clone \
+                --branch ${GTP5G_VERSION} \
+                --depth 1 \
+                https://github.com/free5gc/gtp5g.git \
+                ${GTP5G_DIR}
 
               echo "Building gtp5g..."
-              chroot /host dkms build -m gtp5g -v 0.9.5 -k ${KERNEL}
+              chroot /host sh -c "cd ${GTP5G_DIR} && make clean && make"
 
               echo "Installing gtp5g..."
-              chroot /host dkms install -m gtp5g -v 0.9.5 -k ${KERNEL} --force
+              chroot /host sh -c "cd ${GTP5G_DIR} && make install"
 
               echo "Loading module..."
               chroot /host modprobe gtp5g
