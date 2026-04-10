@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gtp5g-installer
+  namespace: kube-system
+  labels:
+    app: gtp5g-installer
+spec:
+  selector:
+    matchLabels:
+      app: gtp5g-installer
+  template:
+    metadata:
+      labels:
+        app: gtp5g-installer
+    spec:
+      tolerations:
+        - operator: Exists
+      hostPID: true
+      hostNetwork: true
+      initContainers:
+        - name: install-gtp5g
+          image: ubuntu:22.04
+          securityContext:
+            privileged: true
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              # Get the running kernel version from the host
+              KERNEL=$(chroot /host uname -r)
+              echo "Detected kernel: $KERNEL"
+
+              # Check if gtp5g is already loaded
+              if chroot /host sh -c "lsmod | grep -q gtp5g"; then
+                echo "gtp5g already loaded, skipping."
+                exit 0
+              fi
+
+              echo "Installing build dependencies on host..."
+              chroot /host apt-get update -qq
+              chroot /host apt-get install -y --no-install-recommends \
+                gcc \
+                make \
+                git \
+                dkms \
+                linux-headers-${KERNEL}
+
+              GTP5G_VERSION="v0.9.5"
+              GTP5G_DIR="/usr/src/gtp5g-0.9.5"
+
+              echo "Cloning gtp5g ${GTP5G_VERSION}..."
+              if [ ! -d "/host${GTP5G_DIR}" ]; then
+                chroot /host git clone \
+                  --branch ${GTP5G_VERSION} \
+                  --depth 1 \
+                  https://github.com/free5gc/gtp5g.git \
+                  ${GTP5G_DIR}
+              fi
+
+              echo "Adding to DKMS..."
+              chroot /host dkms add -m gtp5g -v 0.9.5 || true
+
+              echo "Building gtp5g..."
+              chroot /host dkms build -m gtp5g -v 0.9.5 -k ${KERNEL}
+
+              echo "Installing gtp5g..."
+              chroot /host dkms install -m gtp5g -v 0.9.5 -k ${KERNEL} --force
+
+              echo "Loading module..."
+              chroot /host modprobe gtp5g
+
+              echo "Enabling ip_forward..."
+              chroot /host sysctl -w net.ipv4.ip_forward=1
+              echo "net.ipv4.ip_forward=1" > /host/etc/sysctl.d/99-ip-forward.conf
+
+              echo "Done! gtp5g loaded successfully."
+          volumeMounts:
+            - name: host-root
+              mountPath: /host
+      containers:
+        - name: pause
+          image: rancher/mirrored-pause:3.6
+          securityContext:
+            privileged: true
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /
