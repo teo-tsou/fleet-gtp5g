@@ -29,14 +29,37 @@ spec:
             - |
               set -e
 
+              # free5GC's UPF (gtpu forwarder) requires gtp5g 0.8.1 <= v < 0.9.0.
+              # v0.9.x (e.g. 0.9.16) loads but the UPF refuses it with
+              # "version mismatch ... should be 0.8.1 <= version < 0.9.0".
+              # v0.8.10 is the highest in-range release.
+              GTP5G_VERSION="v0.8.10"
+              WANT="${GTP5G_VERSION#v}"
+              GTP5G_DIR="/tmp/gtp5g"
+              MARKER="/var/lib/gtp5g.version"   # on host: records the built version
+
               # Get the running kernel version from the host
               KERNEL=$(chroot /host uname -r)
-              echo "Detected kernel: $KERNEL"
+              echo "Detected kernel: $KERNEL ; desired gtp5g: $WANT"
 
-              # Check if gtp5g is already loaded
-              if chroot /host sh -c "lsmod | grep -q gtp5g"; then
-                echo "gtp5g already loaded, skipping."
-                exit 0
+              # Is the CORRECT version already loaded? Only then skip. The old
+              # "skip if any gtp5g is loaded" froze a wrong version on the node —
+              # changing GTP5G_VERSION had no effect because 0.9.16 stayed loaded.
+              if chroot /host sh -c "lsmod | grep -q '^gtp5g'"; then
+                CUR=$(chroot /host sh -c "cat /sys/module/gtp5g/version 2>/dev/null" | tr -d '[:space:]')
+                [ -n "$CUR" ] || CUR=$(chroot /host sh -c "cat $MARKER 2>/dev/null" | tr -d '[:space:]')
+                echo "gtp5g already loaded (version='${CUR:-unknown}')"
+                if [ "$CUR" = "$WANT" ]; then
+                  echo "Loaded gtp5g matches desired version, skipping."
+                  exit 0
+                fi
+                echo "Version mismatch — unloading gtp5g to install ${WANT}..."
+                if ! chroot /host rmmod gtp5g; then
+                  echo "ERROR: gtp5g is in use and cannot be unloaded. Scale the"
+                  echo "free5GC UPF to 0 (so it releases the GTP devices), then"
+                  echo "restart this DaemonSet (kubectl rollout restart)."
+                  exit 1
+                fi
               fi
 
               echo "Installing build dependencies on host..."
@@ -46,9 +69,6 @@ spec:
                 make \
                 git \
                 linux-headers-${KERNEL}
-
-              GTP5G_VERSION="v0.9.16"
-              GTP5G_DIR="/tmp/gtp5g"
 
               echo "Cloning gtp5g ${GTP5G_VERSION}..."
               rm -rf /host${GTP5G_DIR}
@@ -67,11 +87,14 @@ spec:
               echo "Loading module..."
               chroot /host modprobe gtp5g
 
+              echo "Recording installed version..."
+              echo "${WANT}" > /host${MARKER}
+
               echo "Enabling ip_forward..."
               chroot /host sysctl -w net.ipv4.ip_forward=1
               echo "net.ipv4.ip_forward=1" > /host/etc/sysctl.d/99-ip-forward.conf
 
-              echo "Done! gtp5g loaded successfully."
+              echo "Done! gtp5g ${WANT} loaded successfully."
           volumeMounts:
             - name: host-root
               mountPath: /host
