@@ -29,11 +29,15 @@ spec:
             - |
               set -e
 
-              # free5GC's UPF (gtpu forwarder) requires gtp5g 0.8.1 <= v < 0.9.0.
-              # v0.9.x (e.g. 0.9.16) loads but the UPF refuses it with
-              # "version mismatch ... should be 0.8.1 <= version < 0.9.0".
-              # v0.8.10 is the highest in-range release.
-              GTP5G_VERSION="v0.8.10"
+              # The gtp5g range is tied to the free5GC UPF version:
+              #   * free5gc/upf:v4.2.1 requires 0.9.5 <= v < 0.10.0
+              #   * the old towards5gs UPF (v3.x) required 0.8.1 <= v < 0.9.0
+              # The UPF refuses an out-of-range module with
+              # "version mismatch: gtp5g version(X) should be 0.9.5 <= ...".
+              # v0.9.16 is the highest in-range release. The version-aware
+              # reinstall below rmmod's any other loaded version (e.g. a stale
+              # 0.8.10) and rebuilds — a plain "skip if loaded" would freeze it.
+              GTP5G_VERSION="v0.9.16"
               WANT="${GTP5G_VERSION#v}"
               GTP5G_DIR="/tmp/gtp5g"
               MARKER="/var/lib/gtp5g.version"   # on host: records the built version
